@@ -13,6 +13,8 @@ const path = require("path");
 
 const GEOCODE_CACHE_FILE = path.join(__dirname, ".geocode-cache.json");
 const COORD_RE = /^\s*-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?\s*$/;
+const REQUEST_SPACING_MS = 250; // stay under TomTom free-tier QPS
+const MAX_429_RETRIES = 3;
 
 const MODE_MAP = {
 	driving: "car",
@@ -57,6 +59,21 @@ module.exports = NodeHelper.create({
 		}
 	},
 
+	// Serialized request with retry-after on HTTP 429 so we don't trip
+	// TomTom's free-tier rate limit when polling multiple destinations.
+	throttledRequest: function (url, callback, attempt) {
+		attempt = attempt || 0;
+		request({ url: url, method: "GET" }, function (error, response, body) {
+			if (!error && response && response.statusCode === 429 && attempt < MAX_429_RETRIES) {
+				const retryAfter = parseInt(response.headers && response.headers["retry-after"], 10);
+				const wait = (isNaN(retryAfter) ? Math.pow(2, attempt) : retryAfter) * 1000;
+				console.log("MMM-MyCommute: rate limited, retrying in " + wait + "ms");
+				return setTimeout(() => this.throttledRequest(url, callback, attempt + 1), wait);
+			}
+			callback(error, response, body);
+		}.bind(this));
+	},
+
 	geocode: function (address, apiKey, callback) {
 		if (COORD_RE.test(address)) {
 			const parts = address.split(",").map(s => parseFloat(s.trim()));
@@ -67,7 +84,7 @@ module.exports = NodeHelper.create({
 		}
 		const url = "https://api.tomtom.com/search/2/geocode/" + encodeURIComponent(address) + ".json?limit=1&key=" + encodeURIComponent(apiKey);
 		const self = this;
-		request({ url: url, method: "GET" }, function (error, response, body) {
+		this.throttledRequest(url, function (error, response, body) {
 			if (error || !response || response.statusCode !== 200) {
 				const msg = error ? error.message : ("HTTP " + (response && response.statusCode));
 				return callback("Geocoding failed for \"" + address + "\": " + msg);
@@ -90,22 +107,16 @@ module.exports = NodeHelper.create({
 
 	geocodeMany: function (addresses, apiKey, callback) {
 		const results = new Array(addresses.length);
-		let remaining = addresses.length;
-		let firstError = null;
-		if (remaining === 0) {
-			return callback(null, results);
-		}
 		const self = this;
-		addresses.forEach(function (addr, idx) {
-			self.geocode(addr, apiKey, function (err, pos) {
-				if (err && !firstError) firstError = err;
-				results[idx] = pos;
-				remaining--;
-				if (remaining === 0) {
-					callback(firstError, results);
-				}
+		const step = function (i) {
+			if (i >= addresses.length) return callback(null, results);
+			self.geocode(addresses[i], apiKey, function (err, pos) {
+				if (err) return callback(err);
+				results[i] = pos;
+				step(i + 1);
 			});
-		});
+		};
+		step(0);
 	},
 
 	buildRoutingUrl: function (points, dest, apiKey) {
@@ -201,22 +212,25 @@ module.exports = NodeHelper.create({
 	getPredictions: function (payload) {
 		const self = this;
 		const apiKey = payload.apiKey;
-		let returned = 0;
 		const predictions = [];
 
-		payload.destinations.forEach(function (dest, index) {
-			// Transit mode is not supported by TomTom.
+		const processOne = function (index) {
+			if (index >= payload.destinations.length) {
+				self.sendSocketNotification("TOMTOM_TRAFFIC_RESPONSE" + payload.instanceId, predictions);
+				return;
+			}
+			const dest = payload.destinations[index];
+			const next = function (pred) {
+				predictions[index] = pred;
+				setTimeout(() => processOne(index + 1), REQUEST_SPACING_MS);
+			};
+
 			if (dest.config.mode === "transit") {
-				predictions[index] = {
+				return next({
 					config: dest.config,
 					error: true,
 					error_msg: "Transit mode is not supported by TomTom; use driving, walking, or bicycling"
-				};
-				returned++;
-				if (returned === payload.destinations.length) {
-					self.sendSocketNotification("TOMTOM_TRAFFIC_RESPONSE" + payload.instanceId, predictions);
-				}
-				return;
+				});
 			}
 
 			const addresses = [dest.origin];
@@ -226,29 +240,17 @@ module.exports = NodeHelper.create({
 			addresses.push(dest.destination);
 
 			self.geocodeMany(addresses, apiKey, function (err, points) {
-				let prediction;
 				if (err) {
-					prediction = { config: dest.config, error: true, error_msg: err };
-				}
-
-				const finish = function (pred) {
-					predictions[index] = pred;
-					returned++;
-					if (returned === payload.destinations.length) {
-						self.sendSocketNotification("TOMTOM_TRAFFIC_RESPONSE" + payload.instanceId, predictions);
-					}
-				};
-
-				if (prediction) {
 					console.log("MMM-MyCommute: " + err);
-					return finish(prediction);
+					return next({ config: dest.config, error: true, error_msg: err });
 				}
-
 				const url = self.buildRoutingUrl(points, dest, apiKey);
-				request({ url: url, method: "GET" }, function (rErr, rResp, rBody) {
-					finish(self.handleRoutingResponse(dest, rErr, rResp, rBody));
+				self.throttledRequest(url, function (rErr, rResp, rBody) {
+					next(self.handleRoutingResponse(dest, rErr, rResp, rBody));
 				});
 			});
-		});
+		};
+
+		processOne(0);
 	}
 });

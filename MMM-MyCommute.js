@@ -30,7 +30,6 @@ Module.register("MMM-MyCommute", {
 		colorCodeTravelTime: true,
 		moderateTimeThreshold: 1.1,
 		poorTimeThreshold: 1.3,
-		nextTransitVehicleDepartureFormat: "[next at] h:mm a",
 		travelTimeFormat: "m [min]",
 		travelTimeFormatTrim: "left",
 		pollFrequency: 10 * 60 * 1000, //every ten minutes, in milliseconds
@@ -44,12 +43,6 @@ Module.register("MMM-MyCommute", {
 				destination: "40 Bay St, Toronto, ON M5J 2X2",
 				label: "Air Canada Centre",
 				mode: "walking",
-				time: null
-			},
-			{
-				destination: "317 Dundas St W, Toronto, ON M5T 1G4",
-				label: "Art Gallery of Ontario",
-				mode: "transit",
 				time: null
 			},
 			{
@@ -88,49 +81,20 @@ Module.register("MMM-MyCommute", {
 	travelModes: [
 		"driving",
 		"walking",
-		"bicycling",
-		"transit"
-	],
-
-	transitModes: [
-		"bus",
-		"subway",
-		"train",
-		"tram",
-		"rail"
+		"bicycling"
 	],
 
 	avoidOptions: [
 		"tolls",
 		"highways",
-		"ferries",
-		"indoor"
+		"ferries"
 	],
 
 	// Icons to use for each transportation mode
 	symbols: {
-		"driving":          "car",
-		"walking":          "walk",
-		"bicycling":        "bike",
-		"transit":          "streetcar",
-		"tram":             "streetcar",
-		"bus":              "bus",
-		"subway":           "subway",
-		"train":            "train",
-		"rail":             "train",
-		"metro_rail":       "subway",
-		"monorail":         "train",
-		"heavy_rail":       "train",
-		"commuter_train":   "train",
-		"high_speed_train": "train",
-		"intercity_bus":    "bus",
-		"trolleybus":       "streetcar",
-		"share_taxi":       "taxi",
-		"ferry":            "boat",
-		"cable_car":        "gondola",
-		"gondola_lift":     "gondola",
-		"funicular":        "gondola",
-		"other":            "streetcar"
+		"driving":   "car",
+		"walking":   "walk",
+		"bicycling": "bike"
 	},
 
 	start: function() {
@@ -265,27 +229,27 @@ Module.register("MMM-MyCommute", {
 	getData: function() {
 		Log.log(this.name + " refreshing routes");
 
-		//only poll if in window
 		if (this.isInWindow(this.config.startTime, this.config.endTime, this.config.hideDays)) {
-			//build URLs
-			let destinationGetInfo = [];
+			const destinationGetInfo = [];
 			const destinations = this.getDestinations();
-			for(let i = 0; i < destinations.length; i++) {
+			for (let i = 0; i < destinations.length; i++) {
 				const d = destinations[i];
-
 				const destStartTime = d.startTime || "00:00";
 				const destEndTime = d.endTime || "23:59";
 				const destHideDays = d.hideDays || [];
 
 				if (this.isInWindow(destStartTime, destEndTime, destHideDays)) {
-					const url = "https://maps.googleapis.com/maps/api/directions/json" + this.getParams(d);
-					destinationGetInfo.push({ url:url, config: d});
+					destinationGetInfo.push(this.buildRequest(d));
 				}
 			}
 			this.inWindow = true;
 
 			if (destinationGetInfo.length > 0) {
-				this.sendSocketNotification("GOOGLE_TRAFFIC_GET", {destinations: destinationGetInfo, instanceId: this.identifier});
+				this.sendSocketNotification("TOMTOM_TRAFFIC_GET", {
+					apiKey: this.config.apiKey || this.config.apikey,
+					destinations: destinationGetInfo,
+					instanceId: this.identifier
+				});
 			} else {
 				this.hide(1000, {lockString: this.identifier});
 				this.inWindow = false;
@@ -300,68 +264,31 @@ Module.register("MMM-MyCommute", {
 		}
 	},
 
-	getParams: function(dest) {
-
-		let params = "?";
-		params += "origin=" + encodeURIComponent(dest.origin || this.config.origin);
-		params += "&destination=" + encodeURIComponent(dest.destination);
-		params += "&key=" + (this.config.apiKey || this.config.apikey);
-		params += "&language=" + this.config.lang;
-
-		//travel mode
+	buildRequest: function(dest) {
 		let mode = "driving";
 		if (dest.mode && this.travelModes.indexOf(dest.mode) !== -1) {
 			mode = dest.mode;
 		}
-		params += "&mode=" + mode;
 
-		//transit mode if travelMode = "transit"
-		if (mode === "transit" && dest.transitMode) {
-			const tModes = dest.transitMode.split("|");
-			let sanitizedTransitModes = "";
-			for (let i = 0; i < tModes.length; i++) {
-				if (this.transitModes.indexOf(tModes[i]) !== -1) {
-					sanitizedTransitModes += (sanitizedTransitModes === "" ? tModes[i] : "|" + tModes[i]);
-				}
-			}
-			if (sanitizedTransitModes.length > 0) {
-				params += "&transit_mode=" + sanitizedTransitModes;
-			}
-		}
-
-		if (dest.waypoints) {
-			const waypoints = dest.waypoints.split("|");
-			for (let i = 0; i < waypoints.length; i++) {
-				waypoints[i] = "via:" + encodeURIComponent(waypoints[i]);
-			}
-			params += "&waypoints=" + waypoints.join("|");
-		}
-
-		//avoid
+		let avoid;
 		if (dest.avoid) {
-			const a = dest.avoid.split("|");
-			let sanitizedAvoidOptions = "";
-			for (let i = 0; i < a.length; i++) {
-				if (this.avoidOptions.indexOf(a[i]) !== -1) {
-					sanitizedAvoidOptions += (sanitizedAvoidOptions === "" ? a[i] : "|" + a[i]);
-				}
-			}
-			if (sanitizedAvoidOptions.length > 0) {
-				params += "&avoid=" + sanitizedAvoidOptions;
-			}
-		}
-		if (dest.alternatives === true) {
-			params += "&alternatives=true";
+			const sanitized = dest.avoid.split("|").filter(a => this.avoidOptions.indexOf(a) !== -1);
+			if (sanitized.length > 0) avoid = sanitized.join("|");
 		}
 
-		if (dest.arrival_time) {
-			params += "&arrival_time=" + dest.arrival_time;
-		} else {
-			params += "&departure_time=now";	//needed for time based on traffic conditions
-		}
+		const configCopy = Object.assign({}, dest, { mode: mode });
 
-		return params;
-
+		return {
+			origin: dest.origin || this.config.origin,
+			destination: dest.destination,
+			mode: mode,
+			avoid: avoid,
+			alternatives: dest.alternatives === true,
+			arrival_time: dest.arrival_time,
+			waypoints: dest.waypoints,
+			language: this.config.lang,
+			config: configCopy
+		};
 	},
 
 	svgIconFactory: function(glyph) {
@@ -405,41 +332,6 @@ Module.register("MMM-MyCommute", {
 			timeEl.classList.add("status-good");
 		}
 		return timeEl;
-	},
-
-	getTransitIcon: function(dest, route) {
-		let transitIcon;
-		if (dest.transitMode) {
-			transitIcon = dest.transitMode.split("|")[0];
-			if (this.symbols[transitIcon] != null) {
-				transitIcon = this.symbols[transitIcon];
-			} else {
-				transitIcon = this.symbols[route.transitInfo[0].vehicle.toLowerCase()];
-			}
-		} else {
-			transitIcon = this.symbols[route.transitInfo[0].vehicle.toLowerCase()];
-		}
-
-		return transitIcon;
-	},
-
-	buildTransitSummary: function(transitInfo, summaryContainer) {
-
-		for (let i = 0; i < transitInfo.length; i++) {
-			const transitLeg = document.createElement("span");
-			transitLeg.classList.add("transit-leg");
-			transitLeg.appendChild(this.svgIconFactory(this.symbols[transitInfo[i].vehicle.toLowerCase()]));
-
-			const routeNumber = document.createElement("span");
-			routeNumber.innerHTML = transitInfo[i].routeLabel;
-
-			if (transitInfo[i].arrivalTime) {
-				routeNumber.innerHTML = routeNumber.innerHTML + " (" + moment(transitInfo[i].arrivalTime).format(this.config.nextTransitVehicleDepartureFormat) + ")";
-			}
-
-			transitLeg.appendChild(routeNumber);
-			summaryContainer.appendChild(transitLeg);
-		}
 	},
 
 	getHeader: function () {
@@ -509,12 +401,7 @@ Module.register("MMM-MyCommute", {
 				if (this.config.showSummary) {
 					var singleSummary = document.createElement("div");
 					singleSummary.classList.add("route-summary");
-					if (r.transitInfo) {
-						symbolIcon = this.getTransitIcon(p.config,r);
-						this.buildTransitSummary(r.transitInfo, singleSummary);
-					} else {
-						singleSummary.innerHTML = r.summary;
-					}
+					singleSummary.innerHTML = r.summary || "";
 					singleSummary.appendChild(this.formatTime(r.time, r.timeInTraffic));
 					row.appendChild(singleSummary);
 				}
@@ -530,12 +417,7 @@ Module.register("MMM-MyCommute", {
 
 					var multiSummary = document.createElement("div");
 					multiSummary.classList.add("route-summary");
-					if (r.transitInfo) {
-						symbolIcon = this.getTransitIcon(p.config,r);
-						this.buildTransitSummary(r.transitInfo, multiSummary);
-					} else {
-						multiSummary.innerHTML = r.summary;
-					}
+					multiSummary.innerHTML = r.summary || "";
 					routeSummaryOuter.appendChild(multiSummary);
 					routeSummaryOuter.appendChild(this.formatTime(r.time, r.timeInTraffic));
 					row.appendChild(routeSummaryOuter);
@@ -559,7 +441,7 @@ Module.register("MMM-MyCommute", {
 	},
 
 	socketNotificationReceived: function(notification, payload) {
-		if (notification === "GOOGLE_TRAFFIC_RESPONSE" + this.identifier) {
+		if (notification === "TOMTOM_TRAFFIC_RESPONSE" + this.identifier) {
 			this.predictions = payload;
 			this.lastUpdated = moment();
 			if (this.loading) {

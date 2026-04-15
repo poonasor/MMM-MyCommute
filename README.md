@@ -28,11 +28,22 @@ Forward and share the Gofund.me as you see fit.
 
 ## Updating
 
-In a recent change the parameter `apikey` (no capitcal k) was renamed to `apiKey` (capital K). Please make sure, after updating you apply this change in your config.js too.
+### Migrating from the Google Directions version
+
+This fork now uses the **TomTom Routing API** instead of Google's Directions API. If you're updating from an older version:
+
+1. Sign up for a free API key at the [TomTom Developer Portal](https://developer.tomtom.com/) and replace your Google key in `apiKey`.
+2. Any destinations configured with `mode: "transit"` must be changed — TomTom does not offer public-transit routing. Use `driving`, `walking`, or `bicycling` instead. Transit destinations will otherwise render an error.
+3. The `transitMode`, `showNextVehicleDeparture`, `nextTransitVehicleDepartureFormat`, and `avoid: "indoor"` options are no longer supported and can be removed.
+4. No changes are needed to `origin`, `destination`, `waypoints`, `startTime`, `endTime`, `hideDays`, `arrival_time`, calendar integration, or styling — those continue to work as before. Addresses are auto-geocoded on first use (see [Geocoding](#geocoding)).
+
+### apikey → apiKey
+
+In an earlier change the parameter `apikey` (no capital K) was renamed to `apiKey` (capital K). Please make sure, after updating, you apply this change in your `config.js` too.
 
 ## Installation
 
-1. Navigate into your MagicMirror `modules` folder and execute<br>`git clone https://github.com/qistoph/MMM-MyCommute.git`.
+1. Navigate into your MagicMirror `modules` folder and execute<br>`git clone https://github.com/poonasor/MMM-MyCommute.git`.
 2. Enter the `MMM-MyCommute` directory and execute `npm install`.
 3. Register at the [TomTom Developer Portal](https://developer.tomtom.com/) and create an API key. The free tier includes a generous daily request allowance and covers both the Routing and Search APIs.
 4. Restart MagicMirror<br>e.g. `pm2 restart mm`
@@ -192,7 +203,7 @@ If the module seems to malfunction or doesn't show any route information at all,
 
 - Check the server side log of MagicMirror
 - Check the client side log of your mirror
-- Check the [known issues](https://github.com/qistoph/MMM-MyCommute/issues/)
+- Check the [known issues](https://github.com/poonasor/MMM-MyCommute/issues/)
 - Create a new issue, including a clear description of your problem and the relevant server and client logs
 
 ## Dependencies

@@ -6,10 +6,23 @@
  */
 
 const NodeHelper = require("node_helper");
-const request = require("request");
 const moment = require("moment");
 const fs = require("fs");
 const path = require("path");
+
+// Minimal request()-compatible wrapper over native fetch, so the rest of the
+// file can keep its (error, response, body) callback shape.
+function httpGet(opts, cb) {
+	const url = typeof opts === "string" ? opts : opts.url;
+	fetch(url, { method: "GET" })
+		.then(async res => {
+			const body = await res.text();
+			const headers = {};
+			res.headers.forEach((value, key) => { headers[key] = value; });
+			cb(null, { statusCode: res.status, headers: headers }, body);
+		})
+		.catch(err => cb(err));
+}
 
 const GEOCODE_CACHE_FILE = path.join(__dirname, ".geocode-cache.json");
 const COORD_RE = /^\s*-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?\s*$/;
@@ -63,7 +76,7 @@ module.exports = NodeHelper.create({
 	// TomTom's free-tier rate limit when polling multiple destinations.
 	throttledRequest: function (url, callback, attempt) {
 		attempt = attempt || 0;
-		request({ url: url, method: "GET" }, function (error, response, body) {
+		httpGet(url, function (error, response, body) {
 			if (!error && response && response.statusCode === 429 && attempt < MAX_429_RETRIES) {
 				const retryAfter = parseInt(response.headers && response.headers["retry-after"], 10);
 				const wait = (isNaN(retryAfter) ? Math.pow(2, attempt) : retryAfter) * 1000;
@@ -109,9 +122,9 @@ module.exports = NodeHelper.create({
 		const results = new Array(addresses.length);
 		const self = this;
 		const step = function (i) {
-			if (i >= addresses.length) return callback(null, results);
+			if (i >= addresses.length) {return callback(null, results);}
 			self.geocode(addresses[i], apiKey, function (err, pos) {
-				if (err) return callback(err);
+				if (err) {return callback(err);}
 				results[i] = pos;
 				step(i + 1);
 			});
@@ -138,7 +151,7 @@ module.exports = NodeHelper.create({
 			const mapped = [];
 			for (let i = 0; i < parts.length; i++) {
 				const a = AVOID_MAP[parts[i]];
-				if (a && mapped.indexOf(a) === -1) mapped.push(a);
+				if (a && mapped.indexOf(a) === -1) {mapped.push(a);}
 			}
 			mapped.forEach(a => { url += "&avoid=" + a; });
 		}

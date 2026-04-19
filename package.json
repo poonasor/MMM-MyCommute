@@ -4,12 +4,19 @@
   "description": "MagicMirror Module for commute traffic times",
   "main": "MMM-MyCommute.js",
   "scripts": {
-    "test": "grunt",
-    "precommit": "grunt precommit"
+    "lint:js": "eslint .",
+    "lint:css": "stylelint \"**/*.css\"",
+    "lint:md": "markdownlint-cli2 \"**/*.md\" \"#node_modules\"",
+    "lint": "npm run lint:js && npm run lint:css && npm run lint:md",
+    "lint:fix": "eslint . --fix && stylelint \"**/*.css\" --fix && markdownlint-cli2 --fix \"**/*.md\" \"#node_modules\"",
+    "test": "npm run lint",
+    "prepare": "husky"
   },
-  "pre-commit": [
-    "precommit"
-  ],
+  "lint-staged": {
+    "*.js": "eslint --fix",
+    "*.css": "stylelint --fix",
+    "*.md": "markdownlint-cli2 --fix"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/qistoph/MMM-MyCommute.git"
@@ -26,21 +33,22 @@
     "url": "https://github.com/qistoph/MMM-MyCommute/issues"
   },
   "homepage": "https://github.com/qistoph/MMM-MyCommute#readme",
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
     "moment": "^2.29.1",
-    "moment-duration-format": "^1.3.0",
-    "request": "^2.88.2"
+    "moment-duration-format": "^1.3.0"
   },
   "devDependencies": {
-    "grunt": "^1.3.0",
-    "grunt-eslint": "^23.0.0",
-    "grunt-jsonlint": "^2.1.3",
-    "grunt-markdownlint": "^1.0.43",
-    "grunt-staged": "^0.1.0",
-    "grunt-stylelint": "^0.16.0",
-    "pre-commit": "^1.2.1",
-    "stylelint": "^9.10.1",
-    "stylelint-config-standard": "latest",
-    "time-grunt": "latest"
+    "eslint": "^8.57.1",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.5.2",
+    "markdownlint-cli2": "^0.22.0",
+    "stylelint": "^17.8.0",
+    "stylelint-config-standard": "^40.0.0"
+  },
+  "overrides": {
+    "smol-toml": "^1.6.1"
   }
 }

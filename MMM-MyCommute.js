@@ -273,7 +273,7 @@ Module.register("MMM-MyCommute", {
 		let avoid;
 		if (dest.avoid) {
 			const sanitized = dest.avoid.split("|").filter(a => this.avoidOptions.indexOf(a) !== -1);
-			if (sanitized.length > 0) avoid = sanitized.join("|");
+			if (sanitized.length > 0) {avoid = sanitized.join("|");}
 		}
 
 		const configCopy = Object.assign({}, dest, { mode: mode });
